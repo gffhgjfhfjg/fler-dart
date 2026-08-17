@@ -384,7 +384,8 @@ jobs:
         run: |
           TAG="${{ github.ref_name }}"
           RELEASE_NOTES='${{ env.RELEASE_NOTES }}'
-          BASE="https://github.com/myfler/fler-dart/releases/download/$TAG"
+          # 动态取当前仓库（fork/改名后 manifest 内资产 URL 仍指向本仓库 Release）
+          BASE="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/releases/download/$TAG"
           cd release-assets
 
           RT_SHA=$(sha256sum fler-runtime-libs.7z | awk '{print $1}')
