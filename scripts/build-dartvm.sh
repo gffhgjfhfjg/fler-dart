@@ -340,7 +340,7 @@ fi
 
 # ═══════════════════════════════════════════════
 # Step 1e: Patch Blutter for Dart 3.13+ compat（宏守卫，非侵入式）
-# Dart 3.13 三处破坏性变更（Step 2b 按 SDK 头文件特征检测后传宏生效）：
+# Dart 3.13 四处破坏性变更（Step 2b 按 SDK 头文件特征检测后传宏生效）：
 #   1. ObjectStore 存根访问器整体移除，存根并入 StubCode（VM stubs）：
 #      - OBJECT_STORE_STUB_CODE_LIST 从 vm/object_store.h 删除
 #      - blutter 引用的存根枚举改带 VM 后缀（InitAsyncStub → InitAsyncVMStub 等）
@@ -349,6 +349,8 @@ fi
 #      及其 AOT 偏移符号移除；对应指令模式在 3.13 代码中不再出现）。
 #   3. 嵌入 API 移除 Dart_InitializeParams 的 vm_snapshot_data /
 #      vm_snapshot_instructions 字段（isolate 快照接口不变）。
+#   4. 快照 ELF 符号统一：_kDartVmSnapshotData 等 4 个符号合并为
+#      _kDartSnapshotData / _kDartSnapshotText（传 Dart_CreateIsolateGroup）。
 # 守卫内的原始代码保持原样，对 ≤3.12 的构建零影响。
 # ═══════════════════════════════════════════════
 echo ""
@@ -470,6 +472,39 @@ if not already(name, 'NO_EMBED_VM_SNAPSHOT'):
     s[i:i + 2] = ['#ifndef NO_EMBED_VM_SNAPSHOT'] + s[i:i + 2] + ['#endif']
     save(name, s)
     print('  DartLoader.cpp: vm_snapshot params guarded')
+
+# 7. ElfHelper.cpp：快照 ELF 符号统一为 _kDartSnapshotData/_kDartSnapshotText
+#    Dart 3.13 起 4 个符号（_kDartVmSnapshotData 等）合并为 2 个，
+#    统一快照直接传给 Dart_CreateIsolateGroup（见 3.13 dart_api.h 文档）。
+name = 'ElfHelper.cpp'
+if not already(name, 'NO_SPLIT_SNAPSHOT_SYMBOLS'):
+    s = load(name)
+    i = next(k for k in range(len(s)) if 'const char* s_first = kVmSnapshotDataAsmSymbol;' in s[k])
+    assert 'const char* s_last = s_first + strlen(kVmSnapshotDataAsmSymbol)' in s[i + 1]
+    s[i:i + 2] = [
+        '#ifdef NO_SPLIT_SNAPSHOT_SYMBOLS',
+        '\t\t\tconst char* s_first = kSnapshotDataAsmSymbol;',
+        '\t\t\tconst char* s_last = s_first + strlen(kSnapshotDataAsmSymbol) + 1;',
+        '#else',
+        s[i], s[i + 1],
+        '#endif',
+    ]
+    i = next(k for k in range(len(s)) if 'strcmp(name, kVmSnapshotDataAsmSymbol)' in s[k])
+    j = next(k for k in range(i, len(s)) if 'isolate_snapshot_instructions = elf + dynsym->value;' in s[k])
+    block = s[i:j + 2]
+    s[i:j + 2] = ['#ifndef NO_SPLIT_SNAPSHOT_SYMBOLS'] + block + [
+        '#else',
+        '\t\t// fler-dart: Dart 3.13+ unified snapshot (_kDartSnapshotData/_kDartSnapshotText)',
+        '\t\tif (strcmp(name, kSnapshotDataAsmSymbol) == 0) {',
+        '\t\t\tvm_snapshot_data = isolate_snapshot_data = elf + dynsym->value;',
+        '\t\t}',
+        '\t\telse if (strcmp(name, kSnapshotTextAsmSymbol) == 0) {',
+        '\t\t\tvm_snapshot_instructions = isolate_snapshot_instructions = elf + dynsym->value;',
+        '\t\t}',
+        '#endif',
+    ]
+    save(name, s)
+    print('  ElfHelper.cpp: unified snapshot symbols guarded')
 
 print('  Dart 3.13+ compat patches applied')
 PYEOF
@@ -684,6 +719,11 @@ fi
 # vm_snapshot_data / vm_snapshot_instructions 字段。
 if ! grep -q "vm_snapshot_data" "$DARTVM_INCLUDE_DIR/include/dart_api.h" 2>/dev/null; then
     VERSION_DEFINES="$VERSION_DEFINES -DNO_EMBED_VM_SNAPSHOT=ON"
+fi
+# fler-dart: Dart 3.13+ 快照符号统一：_kDartVmSnapshotData/_kDartIsolateSnapshotData
+# 等 4 个符号合并为 _kDartSnapshotData/_kDartSnapshotText（传 Dart_CreateIsolateGroup）。
+if ! grep -q "kIsolateSnapshotDataCSymbol" "$DARTVM_INCLUDE_DIR/include/dart_api.h" 2>/dev/null; then
+    VERSION_DEFINES="$VERSION_DEFINES -DNO_SPLIT_SNAPSHOT_SYMBOLS=ON"
 fi
 # NO_INIT_LATE_STATIC_FIELD: only for SDKs WITHOUT a separate
 # InitLateStaticFieldStub enumerator (pch.h maps it onto InitStaticFieldStub).

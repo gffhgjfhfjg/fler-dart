@@ -189,6 +189,9 @@ endif()
 if(NO_EMBED_VM_SNAPSHOT)
     target_compile_definitions(dartvm PRIVATE NO_EMBED_VM_SNAPSHOT)
 endif()
+if(NO_SPLIT_SNAPSHOT_SYMBOLS)
+    target_compile_definitions(dartvm PRIVATE NO_SPLIT_SNAPSHOT_SYMBOLS)
+endif()
 
 # ─── Link libraries ───
 # Core: static DartVM (version-specific) + dynamic shared libs
