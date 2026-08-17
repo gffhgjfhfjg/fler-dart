@@ -519,9 +519,19 @@ fi
 if [ "$VER_MAJOR" -ge 3 ]; then
     VERSION_DEFINES="$VERSION_DEFINES -DHAS_RECORD_TYPE=ON"
 fi
-if [ "$VER_MAJOR" -ge 3 ] && [ "$VER_MINOR" -ge 6 ]; then
-    VERSION_DEFINES="$VERSION_DEFINES -DUNIFORM_INTEGER_ACCESS=ON"
+# NO_METHOD_EXTRACTOR_STUB / UNIFORM_INTEGER_ACCESS：按 SDK 头文件特征检测
+# （与上游 blutter.py find_compat_macro 逻辑一致，不按版本号硬编码——两者落地
+# 版本不同，绑定在同一版本判断会翻车：method extractor 移除落在 3.5，
+# Integer 访问重构落在 3.6，3.5.4 曾因按 3.6 统一判断编译失败）：
+#   - [vm] Simplify and optimize method extractors（dart-lang/sdk@b9b341f）：
+#     Dart 3.5 起从 ObjectStore 移除 build_generic_method_extractor_code。
+#   - [vm] Refactor access to Integer value（dart-lang/sdk@84fd647，2024-08-19）：
+#     Dart 3.6 起移除 Integer::AsTruncatedInt64Value()。
+if ! grep -q "build_generic_method_extractor_code)" "$DARTVM_INCLUDE_DIR/vm/object_store.h" 2>/dev/null; then
     VERSION_DEFINES="$VERSION_DEFINES -DNO_METHOD_EXTRACTOR_STUB=ON"
+fi
+if ! grep -q "AsTruncatedInt64Value()" "$DARTVM_INCLUDE_DIR/vm/object.h" 2>/dev/null; then
+    VERSION_DEFINES="$VERSION_DEFINES -DUNIFORM_INTEGER_ACCESS=ON"
 fi
 # NO_INIT_LATE_STATIC_FIELD: only for SDKs WITHOUT a separate
 # InitLateStaticFieldStub enumerator (pch.h maps it onto InitStaticFieldStub).
