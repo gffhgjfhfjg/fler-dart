@@ -180,6 +180,12 @@ endif()
 if(UNIFORM_INTEGER_ACCESS)
     target_compile_definitions(dartvm PRIVATE UNIFORM_INTEGER_ACCESS)
 endif()
+if(NO_OBJECT_STORE_STUB)
+    target_compile_definitions(dartvm PRIVATE NO_OBJECT_STORE_STUB)
+endif()
+if(NO_CLOSURE_CONTEXT_FIELD)
+    target_compile_definitions(dartvm PRIVATE NO_CLOSURE_CONTEXT_FIELD)
+endif()
 
 # ─── Link libraries ───
 # Core: static DartVM (version-specific) + dynamic shared libs

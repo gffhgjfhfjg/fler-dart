@@ -339,6 +339,129 @@ PYEOF
 fi
 
 # ═══════════════════════════════════════════════
+# Step 1e: Patch Blutter for Dart 3.13+ compat（宏守卫，非侵入式）
+# Dart 3.13 两处 VM 破坏性变更（Step 2b 按 SDK 头文件特征检测后传宏生效）：
+#   1. ObjectStore 存根访问器整体移除，存根并入 StubCode（VM stubs）：
+#      - OBJECT_STORE_STUB_CODE_LIST 从 vm/object_store.h 删除
+#      - blutter 引用的存根枚举改带 VM 后缀（InitAsyncStub → InitAsyncVMStub 等）
+#      - ObjectStore::throw_stub() / StubCode::HasBeenInitialized() 移除
+#   2. Closure 重构为内联 elements（context / delayed_type_arguments 字段
+#      及其 AOT 偏移符号移除；对应指令模式在 3.13 代码中不再出现）。
+# 守卫内的原始代码保持原样，对 ≤3.12 的构建零影响。
+# ═══════════════════════════════════════════════
+echo ""
+echo "─── [1e] Patching Blutter for Dart 3.13+ compat ───"
+
+python3 - "$BLUTTER_DIR/blutter/src" << 'PYEOF'
+import sys, os
+src = sys.argv[1]
+
+def load(name):
+    with open(os.path.join(src, name), encoding='utf-8') as f:
+        return f.read().split('\n')
+
+def save(name, lines):
+    with open(os.path.join(src, name), 'w', encoding='utf-8', newline='\n') as f:
+        f.write('\n'.join(lines))
+
+def already(name, marker):
+    return marker in '\n'.join(load(name))
+
+def indent_of(line):
+    return line[:len(line) - len(line.lstrip('\t'))]
+
+# 1. DartStub.h：枚举中的 OBJECT_STORE_STUB_CODE_LIST 块加守卫
+name = 'DartStub.h'
+if not already(name, 'NO_OBJECT_STORE_STUB'):
+    s = load(name)
+    i = s.index('#define DO(member, name) name ## Stub,')
+    j = next(k for k in range(i, len(s)) if s[k].startswith('#undef DO'))
+    s.insert(i, '#ifndef NO_OBJECT_STORE_STUB')
+    s.insert(j + 2, '#endif')
+    save(name, s)
+    print('  DartStub.h: OBJECT_STORE enum block guarded')
+
+# 2. pch.h：旧存根枚举名 → VM 后缀名别名（仅 3.13+ 生效）
+name = 'pch.h'
+if not already(name, 'NO_OBJECT_STORE_STUB'):
+    s = load(name)
+    i = s.index('#ifdef NO_INIT_LATE_STATIC_FIELD')
+    j = next(k for k in range(i, len(s)) if s[k].startswith('#endif'))
+    s[j + 1:j + 1] = [
+        '',
+        '// fler-dart: Dart 3.13+ — object store stubs merged into VM stubs (renamed with VM suffix)',
+        '#ifdef NO_OBJECT_STORE_STUB',
+        '#  define InitAsyncStub InitAsyncVMStub',
+        '#  define DefaultTypeTestStub DefaultTypeTestVMStub',
+        '#  define DefaultNullableTypeTestStub DefaultNullableTypeTestVMStub',
+        '#  define AllocateMintSharedWithoutFPURegsStub AllocateMintSharedWithoutFPURegsVMStub',
+        '#  define AllocateMintSharedWithFPURegsStub AllocateMintSharedWithFPURegsVMStub',
+        '#  define InitLateStaticFieldStub InitLateStaticFieldVMStub',
+        '#  define InitLateFinalStaticFieldStub InitLateFinalStaticFieldVMStub',
+        '#  define LateInitializationErrorSharedWithoutFPURegsStub LateInitializationErrorSharedWithoutFPURegsVMStub',
+        '#  define LateInitializationErrorSharedWithFPURegsStub LateInitializationErrorSharedWithFPURegsVMStub',
+        '#  define WriteBarrierWrappersStub WriteBarrierWrappersVMStub',
+        '#  define ArrayWriteBarrierStub ArrayWriteBarrierVMStub',
+        '#endif',
+    ]
+    save(name, s)
+    print('  pch.h: stub kind aliases added')
+
+# 3. DartApp.cpp：loadStubs 的 ObjectStore 存根装载块加守卫
+name = 'DartApp.cpp'
+if not already(name, 'NO_OBJECT_STORE_STUB'):
+    s = load(name)
+    i = s.index('#define DO(member, name) \\')
+    assert 'store->member()' in s[i + 1], 'DartApp.cpp: loadStubs DO block not found'
+    s.insert(i, '#ifndef NO_OBJECT_STORE_STUB')
+    k = next(x for x in range(i, len(s)) if 'StubCode::HasBeenInitialized' in s[x])
+    s[k + 1:k + 1] = [
+        '#else',
+        '\t// fler-dart: Dart 3.13+ — object store stub accessors removed (merged into VM stubs)',
+        '\tthrowStubAddr = dart::StubCode::Throw().EntryPoint();',
+        '#endif',
+    ]
+    save(name, s)
+    print('  DartApp.cpp: loadStubs object-store block guarded')
+
+# 4. CodeAnalyzer_arm64.cpp：Closure context / delayed type arguments 检测加守卫
+name = 'CodeAnalyzer_arm64.cpp'
+if not already(name, 'NO_CLOSURE_CONTEXT_FIELD'):
+    s = load(name)
+    i = next(k for k in range(len(s)) if 'AOT_Closure_context_offset - dart::kHeapObjectTag' in s[k])
+    orig = s[i]
+    s[i:i + 1] = [
+        '#ifndef NO_CLOSURE_CONTEXT_FIELD',
+        orig,
+        '#else',
+        indent_of(orig) + 'if (false) { // fler-dart: Dart 3.13+ Closure.context removed (inline elements)',
+        '#endif',
+    ]
+    i = next(k for k in range(len(s)) if 'AOT_Closure_delayed_type_arguments_offset - dart::kHeapObjectTag' in s[k])
+    orig = s[i]
+    s[i:i + 1] = [
+        '#ifndef NO_CLOSURE_CONTEXT_FIELD',
+        orig,
+        '#else',
+        indent_of(orig) + 'if (false) { // fler-dart: Dart 3.13+ Closure.delayed_type_arguments removed',
+        '#endif',
+    ]
+    save(name, s)
+    print('  CodeAnalyzer_arm64.cpp: closure field guards added')
+
+# 5. FridaWriter.cpp：contextOffset 输出加守卫
+name = 'FridaWriter.cpp'
+if not already(name, 'NO_CLOSURE_CONTEXT_FIELD'):
+    s = load(name)
+    i = next(k for k in range(len(s)) if 'AOT_Closure_context_offset <<' in s[k])
+    s[i:i + 1] = ['#ifndef NO_CLOSURE_CONTEXT_FIELD', s[i], '#endif']
+    save(name, s)
+    print('  FridaWriter.cpp: contextOffset output guarded')
+
+print('  Dart 3.13+ compat patches applied')
+PYEOF
+
+# ═══════════════════════════════════════════════
 # Step 1c: Inject NDK toolchain + ICU fixes
 # ═══════════════════════════════════════════════
 echo ""
@@ -532,6 +655,17 @@ if ! grep -q "build_generic_method_extractor_code)" "$DARTVM_INCLUDE_DIR/vm/obje
 fi
 if ! grep -q "AsTruncatedInt64Value()" "$DARTVM_INCLUDE_DIR/vm/object.h" 2>/dev/null; then
     VERSION_DEFINES="$VERSION_DEFINES -DUNIFORM_INTEGER_ACCESS=ON"
+fi
+# fler-dart: Dart 3.13+（dart-lang/sdk 将 ObjectStore 存根访问器整体移除）：
+# OBJECT_STORE_STUB_CODE_LIST 从 vm/object_store.h 删除，存根并入 StubCode
+# （VM stubs，枚举名带 VM 后缀）。Step 1e 的源码守卫依赖本宏。
+if ! grep -q "define OBJECT_STORE_STUB_CODE_LIST" "$DARTVM_INCLUDE_DIR/vm/object_store.h" 2>/dev/null; then
+    VERSION_DEFINES="$VERSION_DEFINES -DNO_OBJECT_STORE_STUB=ON"
+fi
+# fler-dart: Dart 3.13+ Closure 重构为内联 elements：context /
+# delayed_type_arguments 字段及其 AOT 偏移符号移除。
+if ! grep -q "AOT_Closure_context_offset" "$DARTVM_INCLUDE_DIR/vm/compiler/runtime_offsets_extracted.h" 2>/dev/null; then
+    VERSION_DEFINES="$VERSION_DEFINES -DNO_CLOSURE_CONTEXT_FIELD=ON"
 fi
 # NO_INIT_LATE_STATIC_FIELD: only for SDKs WITHOUT a separate
 # InitLateStaticFieldStub enumerator (pch.h maps it onto InitStaticFieldStub).
