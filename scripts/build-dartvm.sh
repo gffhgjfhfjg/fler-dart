@@ -687,9 +687,11 @@ if grep -q "V(TypeRef)" "$DARTVM_INCLUDE_DIR/vm/class_id.h" 2>/dev/null; then
     VERSION_DEFINES="$VERSION_DEFINES -DHAS_TYPE_REF=ON"
 fi
 # HAS_SHARED_CLASS_TABLE: use ig->shared_class_table() instead of ClassTable.
-# Dart 2.x exposes GetUnboxedFieldsMapAt() only on SharedClassTable (not on
-# ClassTable); 3.x has it on ClassTable so it keeps the default #else path.
-if [ "$VER_MAJOR" -lt 3 ]; then
+# Dart 2.18.x exposes GetUnboxedFieldsMapAt() only on SharedClassTable; 2.19
+# merged it into ClassTable and removed IsolateGroup::shared_class_table()
+# ("no member named 'shared_class_table'" in DartApp.cpp). Detected by
+# isolate.h feature: only ≤2.18 declares shared_class_table().
+if grep -q "shared_class_table" "$DARTVM_INCLUDE_DIR/vm/isolate.h" 2>/dev/null; then
     VERSION_DEFINES="$VERSION_DEFINES -DHAS_SHARED_CLASS_TABLE=ON"
 fi
 if [ "$VER_MAJOR" -ge 3 ]; then
