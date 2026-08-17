@@ -670,15 +670,20 @@ VER_MAJOR=$(echo "$DART_VERSION" | cut -d. -f1)
 VER_MINOR=$(echo "$DART_VERSION" | cut -d. -f2)
 
 VERSION_DEFINES=""
-# OLD_MAP_SET_NAME: Dart 2.x only (e.g. 2.18.6) use the pre-refactor Map/Set layout.
-# (Map/Set are not dart::VM classes; kMapCid/kSetCid absent from object.h).
-# All 3.x (including 3.2.3) already have proper Map/Set VM classes.
-if [ "$VER_MAJOR" -lt 3 ]; then
+# OLD_MAP_SET_NAME: only SDKs still using the pre-rename LinkedHashMap /
+# LinkedHashSet VM classes (2.18.x and older). Dart 2.19 renamed them to
+# Map/Set — so 2.19.x must NOT take this path. Detected by class_id.h
+# feature (V(LinkedHashMap) entry), not by version number.
+if grep -q "V(LinkedHashMap)" "$DARTVM_INCLUDE_DIR/vm/class_id.h" 2>/dev/null; then
     VERSION_DEFINES="$VERSION_DEFINES -DOLD_MAP_SET_NAME=ON"
 fi
-# HAS_TYPE_REF: the SDK still ships dart::TypeRef (removed later when
-# TypeParameter.bound was replaced by TypeParameter.owner). All 2.x have it.
-if [ "$VER_MAJOR" -lt 3 ]; then
+# HAS_TYPE_REF: the SDK still ships dart::TypeRef (with TypeParameter.bound —
+# owner replaced bound when TypeRef was removed). TypeRef is removed in 3.1,
+# but 3.0.x still has it and MUST take the bound() path: blutter's #else
+# branch calls UntaggedTypeParameter::owner() which does not exist in 3.0
+# ("no member named 'owner'" build error). Detected by class_id.h feature
+# (V(TypeRef) entry): true for ≤3.0.x, false for 3.1+.
+if grep -q "V(TypeRef)" "$DARTVM_INCLUDE_DIR/vm/class_id.h" 2>/dev/null; then
     VERSION_DEFINES="$VERSION_DEFINES -DHAS_TYPE_REF=ON"
 fi
 # HAS_SHARED_CLASS_TABLE: use ig->shared_class_table() instead of ClassTable.

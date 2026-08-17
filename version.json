@@ -1,8 +1,8 @@
 {
-  "version": "v0.5.0",
+  "version": "v0.5.1",
   "dartVersions": ["3.13.0","3.12.2","3.12.1","3.12.0","3.11.6","3.11.5","3.11.4","3.11.3","3.11.2","3.11.1","3.11.0","3.10.9","3.10.8","3.10.7","3.10.6","3.10.5","3.10.4","3.10.3","3.10.2","3.10.1","3.10.0","3.9.4","3.9.3","3.9.2","3.9.1","3.9.0","3.8.3","3.8.2","3.8.1","3.8.0","3.7.3","3.7.2","3.7.1","3.7.0","3.6.2","3.6.1","3.6.0","3.5.4","3.5.3","3.5.2","3.5.1","3.5.0","3.4.4","3.4.3","3.4.2","3.4.1","3.4.0","3.3.4","3.3.3","3.3.2","3.3.1","3.3.0","3.2.6","3.2.5","3.2.4","3.2.3","3.2.2","3.2.1","3.2.0","3.1.5","3.1.4","3.1.3","3.1.2","3.1.1","3.1.0","3.0.7","3.0.6","3.0.5","3.0.4","3.0.3","3.0.2","3.0.1","3.0.0","2.19.6","2.19.5","2.19.4","2.19.3","2.19.2","2.19.1","2.19.0","2.18.7","2.18.6"],
   "sizeBytes": 12306142,
-  "releaseNotes": "v0.5.0：补齐 2.18.6 之后全部 Dart 稳定版本（共 82 个，2.18.6~3.13.0；新增 49 个：2.18.7、2.19.x、3.0.x~3.7.x 全系、3.13.0）；适配 Dart 3.13 VM 变更（ObjectStore 存根并入 VM stubs、Closure 内联 elements 重构，按 SDK 头文件特征自动检测）；引擎资产按 Dart 版本独立 7z + 必装运行库 fler-runtime-libs.7z + manifest.json，每版本按需下载。",
-  "downloadUrl": "https://github.com/gffhgjfhfjg/fler-dart/releases/download/v0.5.0/fler-engines.7z",
-  "checksumUrl": "https://github.com/gffhgjfhfjg/fler-dart/releases/download/v0.5.0/checksums.txt"
+  "releaseNotes": "v0.5.1：修复 2.19.x 与 3.0.x 引擎构建失败——OLD_MAP_SET_NAME 此前按主版本号误覆盖 2.19（LinkedHashMap/LinkedHashSet 已于 Dart 2.19 改名 Map/Set）；HAS_TYPE_REF 漏掉 3.0（TypeRef 于 Dart 3.1 才移除，3.0 需走 TypeParameter.bound() 路径）。两宏改为按 SDK class_id.h 头文件特征自动检测（V(LinkedHashMap)/V(TypeRef)），自此 82 个版本（2.18.6~3.13.0）全部可构建；引擎资产按 Dart 版本独立 7z + 必装运行库 fler-runtime-libs.7z + manifest.json，每版本按需下载。",
+  "downloadUrl": "https://github.com/gffhgjfhfjg/fler-dart/releases/download/v0.5.1/fler-runtime-libs.7z",
+  "checksumUrl": "https://github.com/gffhgjfhfjg/fler-dart/releases/download/v0.5.1/checksums.txt"
 }
