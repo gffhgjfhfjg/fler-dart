@@ -186,6 +186,9 @@ endif()
 if(NO_CLOSURE_CONTEXT_FIELD)
     target_compile_definitions(dartvm PRIVATE NO_CLOSURE_CONTEXT_FIELD)
 endif()
+if(NO_EMBED_VM_SNAPSHOT)
+    target_compile_definitions(dartvm PRIVATE NO_EMBED_VM_SNAPSHOT)
+endif()
 
 # ─── Link libraries ───
 # Core: static DartVM (version-specific) + dynamic shared libs

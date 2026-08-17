@@ -340,13 +340,15 @@ fi
 
 # ═══════════════════════════════════════════════
 # Step 1e: Patch Blutter for Dart 3.13+ compat（宏守卫，非侵入式）
-# Dart 3.13 两处 VM 破坏性变更（Step 2b 按 SDK 头文件特征检测后传宏生效）：
+# Dart 3.13 三处破坏性变更（Step 2b 按 SDK 头文件特征检测后传宏生效）：
 #   1. ObjectStore 存根访问器整体移除，存根并入 StubCode（VM stubs）：
 #      - OBJECT_STORE_STUB_CODE_LIST 从 vm/object_store.h 删除
 #      - blutter 引用的存根枚举改带 VM 后缀（InitAsyncStub → InitAsyncVMStub 等）
 #      - ObjectStore::throw_stub() / StubCode::HasBeenInitialized() 移除
 #   2. Closure 重构为内联 elements（context / delayed_type_arguments 字段
 #      及其 AOT 偏移符号移除；对应指令模式在 3.13 代码中不再出现）。
+#   3. 嵌入 API 移除 Dart_InitializeParams 的 vm_snapshot_data /
+#      vm_snapshot_instructions 字段（isolate 快照接口不变）。
 # 守卫内的原始代码保持原样，对 ≤3.12 的构建零影响。
 # ═══════════════════════════════════════════════
 echo ""
@@ -457,6 +459,17 @@ if not already(name, 'NO_CLOSURE_CONTEXT_FIELD'):
     s[i:i + 1] = ['#ifndef NO_CLOSURE_CONTEXT_FIELD', s[i], '#endif']
     save(name, s)
     print('  FridaWriter.cpp: contextOffset output guarded')
+
+# 6. DartLoader.cpp：Dart_InitializeParams 的 vm_snapshot 字段加守卫
+#    Dart 3.13 起嵌入 API 移除 vm_snapshot_data/vm_snapshot_instructions
+#    （VM 快照不再经由 Dart_Initialize 传入，isolate 快照接口不变）。
+name = 'DartLoader.cpp'
+if not already(name, 'NO_EMBED_VM_SNAPSHOT'):
+    s = load(name)
+    i = next(k for k in range(len(s)) if 'init_params.vm_snapshot_data' in s[k])
+    s[i:i + 2] = ['#ifndef NO_EMBED_VM_SNAPSHOT'] + s[i:i + 2] + ['#endif']
+    save(name, s)
+    print('  DartLoader.cpp: vm_snapshot params guarded')
 
 print('  Dart 3.13+ compat patches applied')
 PYEOF
@@ -666,6 +679,11 @@ fi
 # delayed_type_arguments 字段及其 AOT 偏移符号移除。
 if ! grep -q "AOT_Closure_context_offset" "$DARTVM_INCLUDE_DIR/vm/compiler/runtime_offsets_extracted.h" 2>/dev/null; then
     VERSION_DEFINES="$VERSION_DEFINES -DNO_CLOSURE_CONTEXT_FIELD=ON"
+fi
+# fler-dart: Dart 3.13+ 嵌入 API 移除 Dart_InitializeParams 的
+# vm_snapshot_data / vm_snapshot_instructions 字段。
+if ! grep -q "vm_snapshot_data" "$DARTVM_INCLUDE_DIR/include/dart_api.h" 2>/dev/null; then
+    VERSION_DEFINES="$VERSION_DEFINES -DNO_EMBED_VM_SNAPSHOT=ON"
 fi
 # NO_INIT_LATE_STATIC_FIELD: only for SDKs WITHOUT a separate
 # InitLateStaticFieldStub enumerator (pch.h maps it onto InitStaticFieldStub).
